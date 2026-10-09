@@ -125,8 +125,9 @@ default installed to the system config path, not compiled in.
 
 ## M2 — Persist/restore the tiling tree
 
-> Status: designed, not yet implemented. The decisions in **Open questions**
-> below need a sign-off before coding starts.
+> Status: implemented (in progress). Decisions: match by **app_id first,
+> title as tie-breaker**; **opt-in** behind a `CosmicCompConfig` flag (default
+> off, like `autotile`); key saved layouts by **output name + workspace index**.
 
 ### Goal
 
@@ -195,14 +196,14 @@ Mapping from the live tree:
 `zoom` is cleared before snapshotting and on restore (parked geometry is not
 meaningful to persist). Otherwise zoom and persistence are orthogonal.
 
-### Open questions
+### Decisions
 
-1. **Identity key** — `(app_id, title)` with app_id-first matching (proposed),
-   or app_id only, or consume placeholders in map order?
-2. **Always-on vs. opt-in** — persist unconditionally, or gate behind a
-   `CosmicCompConfig` flag (default off, like `autotile`)?
-3. **Workspace key** — `(output name, index)` (proposed) or the workspace
-   `id`/`name` for named/pinned workspaces?
+1. **Identity key** — match by `app_id` first, `title` only as a tie-breaker;
+   consume matching placeholders in map order.
+2. **Trigger** — opt-in via a `CosmicCompConfig` flag
+   (`persist_tiling`, default off, like `autotile`); when off nothing is
+   written or restored.
+3. **Workspace key** — `(output name, workspace index)`.
 
 ### Testing
 

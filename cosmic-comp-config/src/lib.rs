@@ -10,6 +10,7 @@ use crate::input::TouchpadOverride;
 pub mod input;
 #[cfg(feature = "output")]
 pub mod output;
+pub mod tiling;
 pub mod workspace;
 
 #[derive(Debug, Deserialize, Serialize, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -113,6 +114,11 @@ pub struct CosmicCompConfig {
     pub cursor_shake_to_find: bool,
     pub activation_policy: ActivationPolicy,
     pub decoration_preference: DecorationPreference,
+    /// Persist and restore the tiling tree across sessions.
+    pub persist_tiling: bool,
+    /// Saved tiling trees, keyed by output name + workspace index. Only
+    /// written while `persist_tiling` is enabled.
+    pub saved_tiling: Vec<tiling::SavedLayout>,
 }
 
 impl Default for CosmicCompConfig {
@@ -153,6 +159,8 @@ impl Default for CosmicCompConfig {
             cursor_shake_to_find: true,
             activation_policy: ActivationPolicy::default(),
             decoration_preference: DecorationPreference::default(),
+            persist_tiling: false,
+            saved_tiling: Vec::new(),
         }
     }
 }

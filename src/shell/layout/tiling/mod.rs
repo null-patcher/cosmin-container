@@ -38,6 +38,7 @@ use crate::{
 };
 
 use cosmic_comp_config::AppearanceConfig;
+use cosmic_comp_config::tiling::{SavedNode, SavedWindow};
 use cosmic_settings_config::shortcuts::action::{FocusDirection, ResizeDirection};
 use id_tree::{InsertBehavior, MoveBehavior, Node, NodeId, NodeIdError, RemoveBehavior, Tree};
 use keyframe::{
@@ -83,6 +84,10 @@ pub const ANIMATION_DURATION: Duration = Duration::from_millis(200);
 pub const MINIMIZE_ANIMATION_DURATION: Duration = Duration::from_millis(320);
 pub const MOUSE_ANIMATION_DELAY: Duration = Duration::from_millis(150);
 pub const INITIAL_MOUSE_ANIMATION_DELAY: Duration = Duration::from_millis(500);
+
+/// How long after seeding a restored layout we wait for saved windows to map
+/// before dropping the placeholders that never matched.
+const RESTORE_GRACE: Duration = Duration::from_secs(12);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct NodeDesc {
@@ -140,6 +145,8 @@ pub struct TilingLayout {
     zoom: Option<NodeId>,
     pub theme: cosmic::Theme,
     pub appearance: AppearanceConfig,
+    /// In-progress `persist_tiling` restore, if any.
+    restore: Option<RestorePlan>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -173,6 +180,8 @@ pub enum Data {
 pub enum PlaceholderType {
     GrabbedWindow,
     DropZone,
+    /// A slot reserved by `persist_tiling` for a window that has not mapped yet.
+    Restore,
 }
 
 impl Data {
@@ -350,6 +359,21 @@ pub struct RestoreTilingState {
     pub sizes: Vec<i32>,
 }
 
+/// State for an in-progress `persist_tiling` restore: the placeholders seeded
+/// from a saved layout and the saved windows still expected to fill them.
+#[derive(Debug, Clone)]
+struct RestorePlan {
+    leaves: Vec<RestoreLeaf>,
+    deadline: Instant,
+}
+
+#[derive(Debug, Clone)]
+struct RestoreLeaf {
+    windows: Vec<SavedWindow>,
+    node: NodeId,
+    done: bool,
+}
+
 impl TilingLayout {
     pub fn new(
         theme: cosmic::Theme,
@@ -370,6 +394,7 @@ impl TilingLayout {
             swapping_stack_surface_id: Id::new(),
             last_overview_hover: None,
             zoom: None,
+            restore: None,
             theme,
             appearance,
         }
@@ -414,6 +439,14 @@ impl TilingLayout {
         direction: Option<Direction>,
         minimize_rect: Option<Rectangle<i32, Local>>,
     ) {
+        let window = window.into();
+
+        // If a `persist_tiling` restore is in progress, drop the window into its
+        // saved slot instead of appending it to the tree.
+        if minimize_rect.is_none() && self.try_restore(&window) {
+            return;
+        }
+
         let gaps = self.gaps();
 
         let mut tree = self.queue.trees.back().unwrap().0.copy_clone();
@@ -2381,6 +2414,291 @@ impl TilingLayout {
         }
     }
 
+    /// Serialize this layout's tiling tree for `persist_tiling`. Returns `None`
+    /// for an empty tree (or one that only holds placeholders).
+    pub fn save_snapshot(&self) -> Option<SavedNode> {
+        let tree = &self.queue.trees.back()?.0;
+        let root = tree.root_node_id()?;
+        Self::snapshot_node(tree, root)
+    }
+
+    fn snapshot_node(tree: &Tree<Data>, node_id: &NodeId) -> Option<SavedNode> {
+        match tree.get(node_id).ok()?.data() {
+            Data::Mapped { mapped, .. } => {
+                let windows = mapped
+                    .windows()
+                    .map(|(surface, _)| SavedWindow {
+                        app_id: surface.app_id(),
+                        title: surface.title(),
+                    })
+                    .collect::<Vec<_>>();
+                (!windows.is_empty()).then_some(SavedNode::Leaf { windows })
+            }
+            Data::Group {
+                orientation, sizes, ..
+            } => {
+                let children = tree
+                    .children_ids(node_id)
+                    .ok()?
+                    .filter_map(|child| Self::snapshot_node(tree, child))
+                    .collect::<Vec<_>>();
+                match children.len() {
+                    0 => None,
+                    1 => children.into_iter().next(),
+                    _ => {
+                        let sizes = if sizes.len() == children.len() {
+                            sizes.clone()
+                        } else {
+                            Vec::new()
+                        };
+                        Some(SavedNode::Group {
+                            vertical: matches!(orientation, Orientation::Vertical),
+                            sizes,
+                            children,
+                        })
+                    }
+                }
+            }
+            Data::Placeholder { .. } => None,
+        }
+    }
+
+    /// Seed this (empty) layout with placeholders from a saved tree so windows
+    /// mapping into the workspace land in their saved slots. No-op if the tree
+    /// already holds windows or a restore is already in progress.
+    pub fn seed_restore(&mut self, root: &SavedNode) {
+        if self.restore.is_some() {
+            return;
+        }
+        {
+            let tree = &self.queue.trees.back().unwrap().0;
+            let non_empty = tree
+                .root_node_id()
+                .and_then(|root_id| tree.traverse_pre_order(root_id).ok())
+                .into_iter()
+                .flatten()
+                .any(|node| matches!(node.data(), Data::Mapped { .. }));
+            if non_empty {
+                return;
+            }
+        }
+
+        let gaps = self.gaps();
+        let geo = layer_map_for_output(&self.output)
+            .non_exclusive_zone()
+            .as_local();
+        let mut tree = Tree::new();
+        let mut leaves = Vec::new();
+        if Self::build_restore_node(&mut tree, root, &mut leaves, geo).is_none() {
+            return;
+        }
+        let blocker = TilingLayout::update_positions(
+            &self.output,
+            &mut tree,
+            gaps,
+            self.zoom.as_ref(),
+        );
+        self.queue.push_tree(tree, None, blocker);
+        self.restore = Some(RestorePlan {
+            leaves,
+            deadline: Instant::now() + RESTORE_GRACE,
+        });
+    }
+
+    fn build_restore_node(
+        tree: &mut Tree<Data>,
+        saved: &SavedNode,
+        leaves: &mut Vec<RestoreLeaf>,
+        geo: Rectangle<i32, Local>,
+    ) -> Option<NodeId> {
+        match saved {
+            SavedNode::Leaf { windows } => {
+                let node = Node::new(Data::Placeholder {
+                    id: Id::new(),
+                    last_geometry: geo,
+                    type_: PlaceholderType::Restore,
+                });
+                let id = tree.insert(node, InsertBehavior::AsRoot).ok()?;
+                leaves.push(RestoreLeaf {
+                    windows: windows.clone(),
+                    node: id.clone(),
+                    done: false,
+                });
+                Some(id)
+            }
+            SavedNode::Group {
+                vertical,
+                sizes,
+                children,
+            } => {
+                let orientation = if *vertical {
+                    Orientation::Vertical
+                } else {
+                    Orientation::Horizontal
+                };
+                let group_id = tree
+                    .insert(
+                        Node::new(Data::new_group(orientation, geo)),
+                        InsertBehavior::AsRoot,
+                    )
+                    .ok()?;
+                let child_ids = children
+                    .iter()
+                    .filter_map(|child| Self::build_restore_node(tree, child, leaves, geo))
+                    .collect::<Vec<_>>();
+                for child in &child_ids {
+                    tree.move_node(child, MoveBehavior::ToParent(&group_id)).ok();
+                }
+                match child_ids.len() {
+                    0 => {
+                        tree.remove_node(group_id, RemoveBehavior::DropChildren).ok();
+                        None
+                    }
+                    1 => {
+                        let child = child_ids[0].clone();
+                        tree.remove_node(group_id, RemoveBehavior::OrphanChildren)
+                            .ok();
+                        tree.move_node(&child, MoveBehavior::ToRoot).ok();
+                        Some(child)
+                    }
+                    n => {
+                        if let Data::Group {
+                            sizes: group_sizes, ..
+                        } = tree.get_mut(&group_id).unwrap().data_mut()
+                        {
+                            if sizes.len() == n {
+                                *group_sizes = sizes.clone();
+                            } else {
+                                *group_sizes = Self::equal_sizes(orientation, geo, n);
+                            }
+                        }
+                        Some(group_id)
+                    }
+                }
+            }
+        }
+    }
+
+    fn equal_sizes(orientation: Orientation, geo: Rectangle<i32, Local>, n: usize) -> Vec<i32> {
+        let total = match orientation {
+            Orientation::Vertical => geo.size.w,
+            Orientation::Horizontal => geo.size.h,
+        }
+        .max(n as i32);
+        let base = total / n as i32;
+        let mut sizes = vec![base; n];
+        if let Some(last) = sizes.last_mut() {
+            *last = total - base * (n as i32 - 1);
+        }
+        sizes
+    }
+
+    /// Insert a window into its saved slot if a restore is in progress.
+    fn try_restore(&mut self, window: &CosmicMapped) -> bool {
+        let surface = window.active_window();
+        let app_id = surface.app_id();
+        let title = surface.title();
+
+        let (idx, node) = {
+            let Some(plan) = self.restore.as_ref() else {
+                return false;
+            };
+            let mut title_match = None;
+            let mut app_match = None;
+            'search: for (i, leaf) in plan.leaves.iter().enumerate() {
+                if leaf.done {
+                    continue;
+                }
+                for saved in &leaf.windows {
+                    if saved.app_id != app_id {
+                        continue;
+                    }
+                    if saved.title == title {
+                        title_match = Some(i);
+                        break 'search;
+                    }
+                    if app_match.is_none() {
+                        app_match = Some(i);
+                    }
+                }
+            }
+            match title_match.or(app_match) {
+                Some(i) => (i, plan.leaves[i].node.clone()),
+                None => return false,
+            }
+        };
+
+        if let Some(plan) = self.restore.as_mut() {
+            plan.leaves[idx].done = true;
+        }
+
+        let gaps = self.gaps();
+        let mut tree = self.queue.trees.back().unwrap().0.copy_clone();
+        let geo = tree
+            .get(&node)
+            .ok()
+            .map(|n| *n.data().geometry())
+            .unwrap_or_else(|| Rectangle::new((0, 0).into(), (1, 1).into()));
+        *tree.get_mut(&node).unwrap().data_mut() = Data::Mapped {
+            mapped: window.clone(),
+            last_geometry: geo,
+            minimize_rect: None,
+        };
+        *window.tiling_node_id.lock().unwrap() = Some(node.clone());
+        let blocker =
+            TilingLayout::update_positions(&self.output, &mut tree, gaps, self.zoom.as_ref());
+        self.queue.push_tree(tree, ANIMATION_DURATION, blocker);
+
+        if self
+            .restore
+            .as_ref()
+            .is_some_and(|plan| plan.leaves.iter().all(|leaf| leaf.done))
+        {
+            self.restore = None;
+        }
+        let _ = node;
+        true
+    }
+
+    /// Drop placeholders from a restore that never saw all its windows.
+    fn validate_restore(&mut self) {
+        let Some(plan) = self.restore.as_ref() else {
+            return;
+        };
+        if plan.leaves.iter().all(|leaf| leaf.done) {
+            self.restore = None;
+            return;
+        }
+        if Instant::now() < plan.deadline {
+            return;
+        }
+
+        let pending = self
+            .restore
+            .as_ref()
+            .unwrap()
+            .leaves
+            .iter()
+            .filter(|leaf| !leaf.done)
+            .map(|leaf| leaf.node.clone())
+            .collect::<Vec<_>>();
+
+        let gaps = self.gaps();
+        let mut tree = self.queue.trees.back().unwrap().0.copy_clone();
+        for node in pending {
+            if tree
+                .get(&node)
+                .is_ok_and(|n| matches!(n.data(), Data::Placeholder { .. }))
+            {
+                TilingLayout::unmap_internal(&mut tree, &node);
+            }
+        }
+        let blocker =
+            TilingLayout::update_positions(&self.output, &mut tree, gaps, self.zoom.as_ref());
+        self.queue.push_tree(tree, ANIMATION_DURATION, blocker);
+        self.restore = None;
+    }
+
     #[profiling::function]
     pub fn refresh(&mut self) {
         let dead_windows = self
@@ -2397,6 +2715,7 @@ impl TilingLayout {
         }
 
         self.validate_zoom();
+        self.validate_restore();
     }
 
     pub fn animations_going(&self) -> bool {
