@@ -123,6 +123,15 @@ tiled areas before Super+z: {'c1': 492352, 'c2': 492352}
 KMS ZOOM OK: tile grew 492352 -> 1024000 -> 492352
 ```
 
+To *see* it, `scripts/vm/screenshot.sh` boots the same guest and grabs the real
+virtio-gpu framebuffer with the QEMU monitor `screendump` command, writing
+`1-tiled.png`, `2-zoomed.png`, `3-restored.png` into `.vm-tmp/screenshots/` on
+the host (no display backend is needed — this works with `-display none`):
+
+```sh
+podman-compose run --rm -e BOOT_TIMEOUT=240 vm bash /work/scripts/vm/screenshot.sh
+```
+
 ### How it works
 
 - The initramfs carries memory-only config: `Shortcuts/v1/defaults` from

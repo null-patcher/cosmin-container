@@ -24,6 +24,9 @@ podman-compose exec -T dev bash /work/scripts/functional-zoom.sh
 # real KMS acceptance test (QEMU guest; TCG, slow — see docs/SANDBOX.md)
 podman build -f Dockerfile.vm -t cosmic-comp-vm .
 podman-compose run --rm -e BOOT_TIMEOUT=240 vm bash /work/scripts/vm/run-vm.sh
+
+# visual capture (PNGs land in .vm-tmp/screenshots/ on the host)
+podman-compose run --rm -e BOOT_TIMEOUT=240 vm bash /work/scripts/vm/screenshot.sh
 ```
 
 There is no unit-test suite for the tiling changes; verify with the scripts
