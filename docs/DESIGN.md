@@ -36,7 +36,7 @@ The genuinely missing pieces versus Trellis are:
 | # | Milestone | Status |
 |---|-----------|--------|
 | M1 | Zoom-to-subtree (`Action::ZoomWindow`) | **done** |
-| M2 | Persist/restore the tiling tree per workspace/output | planned |
+| M2 | Persist/restore the tiling tree per workspace/output | designed |
 | M3 | Direct edge docking without entering the overview | planned |
 | M4 | Polish: animations, window-menu entry, multi-output | planned |
 
@@ -122,6 +122,94 @@ default installed to the system config path, not compiled in.
   context menu (`src/shell/grabs/menu/default.rs`), in addition to `Super+z`.
 - Parking relies on `last_geometry`; if a future change starts using
   `last_geometry` for rendering or hit-testing elsewhere, revisit.
+
+## M2 — Persist/restore the tiling tree
+
+> Status: designed, not yet implemented. The decisions in **Open questions**
+> below need a sign-off before coding starts.
+
+### Goal
+
+After a session restart, reconstruct each workspace's tiling shape (nested
+split/stack structure, orientation and relative sizes) and re-seat the windows
+that map back into it. Only the *shape* is persisted — absolute pixel geometry
+is recomputed from the output at restore time.
+
+### Data model
+
+Add a serde model to `cosmic-comp-config` (it must not depend on smithay, so
+orientation is a `bool`) and expose it on `CosmicCompConfig` as
+`saved_tiling: Vec<SavedLayout>`:
+
+```rust
+pub struct SavedLayout {
+    pub output: String,   // output name
+    pub index: usize,     // workspace index within the output
+    pub root: SavedNode,
+}
+
+pub enum SavedNode {
+    Group { vertical: bool, sizes: Vec<i32>, children: Vec<SavedNode> },
+    Leaf  { windows: Vec<SavedWindow> }, // stack order, back-to-front
+}
+
+pub struct SavedWindow { pub app_id: String, pub title: String }
+```
+
+Mapping from the live tree:
+
+- `Data::Group` → `SavedNode::Group` (orientation + `sizes` + children).
+- `Data::Mapped` → `SavedNode::Leaf`, one `SavedWindow` per `CosmicSurface`
+  (`app_id()` + `title()`), in stack order.
+- `Data::Placeholder` → skipped (collapsed).
+- `zoom` is **not** persisted; `parked_geometry` is ignored.
+
+### Save
+
+- `TilingLayout::save_snapshot() -> Option<SavedNode>` serializes a non-empty
+  tiling tree.
+- `Workspaces::persist_tiling()` walks `sets`/`workspaces`, snapshots each, and
+  writes the whole `Vec<SavedLayout>` with
+  `cosmic_helper.set("saved_tiling", …)` (the same mechanism as
+  `pinned_workspaces`).
+- Triggered next to tiling recalculation (`refresh`) but **debounced**: write
+  only when the snapshot changed and at most ~once per second, so drags don't
+  hammer the disk. `Workspace` already carries a `dirty: AtomicBool`.
+
+### Restore
+
+- `Config::load` already materializes `CosmicCompConfig`; `Workspaces` keeps
+  `saved_tiling`, mirroring `pinned_workspaces`.
+- When a `Workspace`/`TilingLayout` is created, if a saved layout matches its
+  output (+ index) the tree is seeded with the skeleton: `Group` nodes with the
+  saved orientation/sizes, and each `Leaf` becomes a `Data::Placeholder` tagged
+  with that leaf's expected `(app_id, title)` list.
+- As windows map, a window replaces the first placeholder whose expected list
+  contains its `app_id` (title only as a tie-breaker), preserving the saved
+  sibling order.
+- Dangling placeholders are dropped once the window set settles (or after a
+  short timeout); windows that match nothing insert as usual.
+
+### Interaction with M1
+
+`zoom` is cleared before snapshotting and on restore (parked geometry is not
+meaningful to persist). Otherwise zoom and persistence are orthogonal.
+
+### Open questions
+
+1. **Identity key** — `(app_id, title)` with app_id-first matching (proposed),
+   or app_id only, or consume placeholders in map order?
+2. **Always-on vs. opt-in** — persist unconditionally, or gate behind a
+   `CosmicCompConfig` flag (default off, like `autotile`)?
+3. **Workspace key** — `(output name, index)` (proposed) or the workspace
+   `id`/`name` for named/pinned workspaces?
+
+### Testing
+
+Extend the VM harness: boot → split/stack windows → quit → reboot with the same
+`XDG_CONFIG_HOME` → assert the tree shape is restored via the clients' `GEOM`
+lines (same split ratios, same sibling order). A faster winit-based snapshot
+round-trip test can cover the serialize/deserialize logic without a full boot.
 
 ## Repository layout / conventions
 
