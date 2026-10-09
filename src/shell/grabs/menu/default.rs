@@ -238,6 +238,7 @@ pub fn window_items(
     let maximize_clone = window.clone();
     let fullscreen_clone = window.clone();
     let tile_clone = window.clone();
+    let zoom_clone = window.clone();
     let move_prev_clone = window.clone();
     let move_next_clone = window.clone();
     let move_clone = window.clone();
@@ -330,6 +331,18 @@ pub fn window_items(
             })
             .shortcut(config.shortcut_for_action(&Action::ToggleWindowFloating))
             .toggled(!is_tiled),
+        ),
+        (tiling_enabled && is_tiled).then_some(
+            Item::new(fl!("window-menu-zoom"), move |handle| {
+                let zoom_clone = zoom_clone.clone();
+                let _ = handle.insert_idle(move |state| {
+                    let mut shell = state.common.shell.write();
+                    if let Some(ws) = shell.space_for_mut(&zoom_clone) {
+                        ws.tiling_layer.zoom_toggle(&zoom_clone);
+                    }
+                });
+            })
+            .shortcut(config.shortcut_for_action(&Action::ZoomWindow)),
         ),
         Some(Item::Separator),
         // TODO: Where to save?

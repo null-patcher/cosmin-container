@@ -11,6 +11,7 @@ window-menu-minimize = Minimize
 window-menu-maximize = Maximize
 window-menu-fullscreen = Fullscreen
 window-menu-tiled = Float window
+window-menu-zoom = Zoom to workspace
 window-menu-screenshot = Take screenshot
 window-menu-move = Move
 window-menu-resize = Resize

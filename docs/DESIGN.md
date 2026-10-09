@@ -118,7 +118,8 @@ default installed to the system config path, not compiled in.
   gaps/panels would sit. Fine for M1, refine in M4.
 - **Animations**: the transform is applied instantly on the next tree push; it
   does not animate from the previous geometry like move/resize grabs do.
-- **Window menu**: no "Zoom" entry yet (keyboard only).
+- **Window menu**: a "Zoom to workspace" entry is available in the window
+  context menu (`src/shell/grabs/menu/default.rs`), in addition to `Super+z`.
 - Parking relies on `last_geometry`; if a future change starts using
   `last_geometry` for rendering or hit-testing elsewhere, revisit.
 
