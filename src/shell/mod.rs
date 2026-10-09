@@ -861,8 +861,11 @@ pub struct Workspaces {
     autotile_behavior: TileBehavior,
     theme: cosmic::Theme,
     appearance: AppearanceConfig,
+    persist_tiling: bool,
     // Persisted workspace to add on first `output_add`
     persisted_workspaces: Vec<PinnedWorkspace>,
+    // Saved tiling layouts to seed on workspace creation (by output name + index)
+    saved_tiling: Vec<cosmic_comp_config::tiling::SavedLayout>,
 }
 
 impl Workspaces {
@@ -876,7 +879,9 @@ impl Workspaces {
             autotile_behavior: config.cosmic_conf.autotile_behavior,
             theme,
             appearance: config.cosmic_conf.appearance_settings,
+            persist_tiling: config.cosmic_conf.persist_tiling,
             persisted_workspaces: config.cosmic_conf.pinned_workspaces.clone(),
+            saved_tiling: config.cosmic_conf.saved_tiling.clone(),
         }
     }
 
