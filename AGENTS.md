@@ -27,6 +27,9 @@ podman-compose run --rm -e BOOT_TIMEOUT=240 vm bash /work/scripts/vm/run-vm.sh
 
 # visual capture (PNGs land in .vm-tmp/screenshots/ on the host)
 podman-compose run --rm -e BOOT_TIMEOUT=240 vm bash /work/scripts/vm/screenshot.sh
+
+# interactive host QEMU window (run on the HOST, not in the container)
+scripts/vm/interactive.sh
 ```
 
 There is no unit-test suite for the tiling changes; verify with the scripts

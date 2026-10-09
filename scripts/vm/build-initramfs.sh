@@ -149,6 +149,15 @@ mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
 mkdir -p /run /tmp
 
+# Optional overrides from the kernel command line (used by the interactive and
+# virgl QEMU paths). e.g. cosmic_mesa=virtio_gpu cosmic_log=debug
+for arg in $(cat /proc/cmdline); do
+    case "$arg" in
+        cosmic_mesa=*) MESA_DRIVER="${arg#cosmic_mesa=}" ;;
+        cosmic_log=*) RUST_LOG="${arg#cosmic_log=}" ;;
+    esac
+done
+
 echo "[init] loading kernel modules"
 while read -r m; do
     [ -n "$m" ] || continue

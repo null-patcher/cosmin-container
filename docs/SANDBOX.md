@@ -132,6 +132,26 @@ the host (no display backend is needed — this works with `-display none`):
 podman-compose run --rm -e BOOT_TIMEOUT=240 vm bash /work/scripts/vm/screenshot.sh
 ```
 
+To drive it yourself in a real window, run the guest on the **host** (the
+container's QEMU only has `none`/`curses` displays, but the host QEMU has
+SDL/GTK). `scripts/vm/interactive.sh` builds the artifacts in the container,
+then launches the host QEMU with an SDL window; click it and press `Super+z`.
+
+```sh
+scripts/vm/interactive.sh            # software rendering (SDL, 1280x800)
+VIRGL=1 scripts/vm/interactive.sh    # virtio-gpu-gl + host GL (faster render)
+```
+
+Notes:
+
+- Still TCG (no `/dev/kvm`), so boot takes minutes. Boot progress goes to
+  `.vm-tmp/interactive-serial.log`.
+- SDL opens at the device resolution (1280x800); GTK defaults to 640x480.
+- `VIRGL=1` passes `-device virtio-gpu-gl-pci -display …,gl=on` and sets
+  `cosmic_mesa=virtio_gpu` on the kernel command line. The init reads
+  `cosmic_mesa=`/`cosmic_log=` from `/proc/cmdline` to override the Mesa driver
+  and log level.
+
 ### How it works
 
 - The initramfs carries memory-only config: `Shortcuts/v1/defaults` from
