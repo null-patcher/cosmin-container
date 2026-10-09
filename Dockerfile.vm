@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: GPL-3.0-only
+#
+# VM/KMS acceptance-test tooling for the cosmic-container fork.
+#
+# Extends the dev image with QEMU, a guest kernel and the tools needed to
+# assemble a bootable initramfs that runs cosmic-comp on the real KMS/DRM
+# backend against QEMU's virtio-gpu, driven headlessly (serial console +
+# QEMU monitor screendump/sendkey).
+#
+# Build:  podman build -f Dockerfile.vm -t cosmic-comp-vm .
+# Run:    podman-compose run --rm vm bash /work/scripts/vm/run-vm.sh
+#
+# Note: this image is only for building the guest; QEMU *may* be run from the
+# host instead when /dev/kvm is available (it is not in the reference env).
+FROM cosmic-comp-dev
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        qemu-system-x86 qemu-utils \
+        linux-image-amd64 \
+        busybox-static kmod \
+        cpio zstd xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+CMD ["/bin/bash"]

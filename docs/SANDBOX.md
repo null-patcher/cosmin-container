@@ -4,12 +4,12 @@ cosmic-comp is a compositor: running it inside the live COSMIC session would
 nest it awkwardly and could disturb the host session. This fork therefore
 develops and tests in a **sandbox**, never nested in the daily driver.
 
-Two environments are planned:
+Two environments are provided:
 
 | Environment | Purpose | Status |
 |-------------|---------|--------|
-| podman container + Xvfb (winit backend) | fast compile + headless behavioural tests | ready |
-| QEMU/KVM VM with virtio-gpu (KMS backend) | real DRM/KMS acceptance | planned |
+| podman container + Xvfb (winit backend) | fast compile + headless tests | implemented |
+| QEMU guest, virtio-gpu (KMS backend) | real DRM/KMS acceptance | implemented |
 
 ## 1. Container + Xvfb (winit)
 
@@ -95,17 +95,59 @@ Notes for anyone extending the tests:
   them as dialogs and float them. The custom `toplevel.c` client is resizable
   and tiles correctly.
 
-## 2. VM with KMS (planned)
+## 2. QEMU guest with KMS
 
 The container path cannot exercise real DRM/KMS, libinput seats or the session
-backend. For acceptance testing, run cosmic-comp as the session compositor in a
-QEMU/KVM guest with a virtio-gpu display:
+backend. `scripts/vm/` boots cosmic-comp as the session compositor in a minimal
+QEMU guest on the virtio-gpu DRM node, so the KMS code path, libinput device
+enumeration and the seatd session are all the real thing.
 
-1. Boot a VM (QEMU `-device virtio-vga-gl` / `virtio-gpu`, `-display sdl` or a
-   VNC/SPICE display) with a minimal Linux + the same Mesa/DRM userspace.
-2. Start cosmic-comp on the DRM node (`COSMIC_BACKEND` unset, no
-   `DISPLAY`/`WAYLAND_DISPLAY`) inside a seat (logind/libseat).
-3. Drive it with a Wayland client and real input, and capture the framebuffer.
+### Build and run
 
-This environment is not scripted yet; it is the remaining task for real KMS
-coverage.
+`Dockerfile.vm` (built as the `vm` service) adds QEMU, a Debian guest kernel
+(`/boot/vmlinuz-*`) and the `busybox`/`kmod`/`cpio`/`xz` tooling to the dev
+image. `scripts/vm/build-initramfs.sh` packages a bootable initramfs; then
+`scripts/vm/run-vm.sh` boots it and drives the acceptance test:
+
+```sh
+podman build -f Dockerfile.vm -t cosmic-comp-vm .   # build the vm image
+podman-compose run --rm -e BOOT_TIMEOUT=240 vm bash /work/scripts/vm/run-vm.sh
+```
+
+There is no `/dev/kvm` in the reference environment, so QEMU runs under TCG and
+a full boot takes minutes; pass a large `BOOT_TIMEOUT`. Successful output ends
+with:
+
+```
+tiled areas before Super+z: {'c1': 492352, 'c2': 492352}
+KMS ZOOM OK: tile grew 492352 -> 1024000 -> 492352
+```
+
+### How it works
+
+- The initramfs carries memory-only config: `Shortcuts/v1/defaults` from
+  `data/keybindings.ron` and `CosmicComp/v1/autotile = true`, both under
+  `XDG_CONFIG_HOME=/etc/xdg`.
+- `seatd -g root` provides the seat (`LIBSEAT_BACKEND=seatd`); the kernel
+  modules are decompressed from `.ko.xz` because busybox `insmod` cannot read a
+  compressed module.
+- `systemd-udevd` runs before cosmic-comp and `udevadm trigger` populates the
+  udev database. **`evdev` must be in the module list** — without
+  `/dev/input/event*`, libinput never surfaces the virtio keyboard and no
+  shortcuts fire.
+- cosmic-comp runs with `COSMIC_BACKEND=kms`, `MESA_LOADER_DRIVER_OVERRIDE=
+  kms_swrast` and `LIBGL_ALWAYS_SOFTWARE=1`; virtio-gpu provides the render node
+  (`renderD128`) that GBM/EGL needs (the `bochs`/`-vga std` device does not).
+- Evidence is the serial console: each client prints `GEOM <tag> <w> <h>` on
+  every configure (the QEMU in `Dockerfile.vm` has no screendump-capable
+  display). `run-vm.sh` waits for the tiling to settle, sends `sendkey meta_l-z`
+  through the QEMU monitor, and asserts the focused tile grows then restores.
+
+### Notes
+
+- The plain `-device virtio-gpu-pci` device plus software `kms_swrast` is used
+  because the container QEMU only offers the `none`/`curses` display backends
+  (no `egl-headless`), so virgl is unavailable. On a host QEMU with
+  `-display egl-headless -device virtio-gpu-gl-pci` you can set
+  `MESA_DRIVER=virtio_gpu` for a hardware-ish path.
+- `.vm-tmp/` holds the last serial log for debugging and is git-ignored.

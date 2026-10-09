@@ -13,4 +13,5 @@ vendor
 vendor.tar
 .vscode
 *.log
+.vm-tmp/
 /result

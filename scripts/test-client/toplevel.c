@@ -80,7 +80,9 @@ static void xdg_surface_configure(void *data, struct xdg_surface *xs, uint32_t s
     xdg_surface_ack_configure(xs, serial);
     wl_surface_commit(s->surface);
     s->configured = 1;
+    const char *tag = getenv("TEST_TAG");
     printf("CONFIGURE %d %d\n", s->width, s->height);
+    printf("GEOM %s %d %d\n", tag ? tag : "0", s->width, s->height);
     fflush(stdout);
 }
 static const struct xdg_surface_listener xdg_surface_listener = { xdg_surface_configure };

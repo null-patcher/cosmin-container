@@ -24,6 +24,27 @@ services:
       LIBGL_ALWAYS_SOFTWARE: "1"
     command: sleep infinity
 
+  # VM/KMS acceptance-test tooling (QEMU + guest kernel + initramfs builder).
+  # See scripts/vm/ and docs/SANDBOX.md.
+  vm:
+    build:
+      context: .
+      dockerfile: Dockerfile.vm
+    image: localhost/cosmic-comp-vm:latest
+    working_dir: /work
+    volumes:
+      - .:/work:z
+      - ../cosmic-settings-daemon:/cosmic-settings-daemon:z
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - target:/work/target
+    # Host GPU render node, used by QEMU's egl-headless + virgl for virtio-gpu.
+    devices:
+      - /dev/dri:/dev/dri
+    environment:
+      CARGO_TERM_COLOR: always
+    command: sleep infinity
+
 volumes:
   cargo-registry:
   cargo-git:

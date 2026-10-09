@@ -20,9 +20,13 @@ podman-compose exec -T dev bash /work/scripts/smoke-winit.sh 12
 
 # functional zoom-to-subtree test
 podman-compose exec -T dev bash /work/scripts/functional-zoom.sh
+
+# real KMS acceptance test (QEMU guest; TCG, slow — see docs/SANDBOX.md)
+podman build -f Dockerfile.vm -t cosmic-comp-vm .
+podman-compose run --rm -e BOOT_TIMEOUT=240 vm bash /work/scripts/vm/run-vm.sh
 ```
 
-There is no unit-test suite for the tiling changes; verify with the two scripts
+There is no unit-test suite for the tiling changes; verify with the scripts
 above. Always run at least `cargo check` after editing.
 
 ## Critical facts
@@ -42,6 +46,9 @@ above. Always run at least `cargo check` after editing.
   `com.system76.CosmicSettings.Shortcuts`; `data/keybindings.ron` is only the
   installed default. Tests copy it into `.../v1/defaults` under `XDG_CONFIG_HOME`.
 - The Wayland socket may be `wayland-1`; discover via `$XDG_RUNTIME_DIR/wayland-*`.
+- The VM harness needs `evdev` among the guest modules (else no
+  `/dev/input/event*` and libinput never sees the virtio keyboard) and must run
+  `systemd-udevd` + `udevadm trigger` before cosmic-comp.
 - Match the surrounding code style; do **not** add comments unless asked.
 
 ## Where things live
