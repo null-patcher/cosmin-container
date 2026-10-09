@@ -136,6 +136,8 @@ pub struct TilingLayout {
     backdrop_id: Id,
     swapping_stack_surface_id: Id,
     last_overview_hover: Option<(Option<Instant>, TargetZone)>,
+    /// Node that is currently zoomed to fill the workspace, if any.
+    zoom: Option<NodeId>,
     pub theme: cosmic::Theme,
     pub appearance: AppearanceConfig,
 }
@@ -367,6 +369,7 @@ impl TilingLayout {
             backdrop_id: Id::new(),
             swapping_stack_surface_id: Id::new(),
             last_overview_hover: None,
+            zoom: None,
             theme,
             appearance,
         }
@@ -388,7 +391,7 @@ impl TilingLayout {
             }
         }
 
-        let blocker = TilingLayout::update_positions(output, &mut tree, gaps);
+        let blocker = TilingLayout::update_positions(output, &mut tree, gaps, self.zoom.as_ref());
         self.queue.push_tree(tree, None, blocker);
         self.output = output.clone();
     }
@@ -431,7 +434,7 @@ impl TilingLayout {
             direction,
             minimize_rect,
         );
-        let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps);
+        let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps, self.zoom.as_ref());
         self.queue.push_tree(tree, duration, blocker);
     }
 
@@ -496,7 +499,7 @@ impl TilingLayout {
                 tree.make_nth_sibling(&new_id, idx).unwrap();
                 *window.tiling_node_id.lock().unwrap() = Some(new_id);
 
-                let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps);
+                let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps, self.zoom.as_ref());
                 self.queue
                     .push_tree(tree, MINIMIZE_ANIMATION_DURATION, blocker);
                 return;
@@ -534,7 +537,7 @@ impl TilingLayout {
 
                 *window.tiling_node_id.lock().unwrap() = Some(new_id);
 
-                let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps);
+                let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps, self.zoom.as_ref());
                 self.queue
                     .push_tree(tree, MINIMIZE_ANIMATION_DURATION, blocker);
                 return;
@@ -637,7 +640,7 @@ impl TilingLayout {
             old.output_leave(&self.output);
             new.output_enter(&self.output, new.bbox());
 
-            let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps);
+            let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps, self.zoom.as_ref());
             self.queue.push_tree(tree, ANIMATION_DURATION, blocker);
         }
     }
@@ -815,11 +818,11 @@ impl TilingLayout {
 
                 TilingLayout::unmap_internal(&mut this_tree, &desc.node);
                 let blocker =
-                    TilingLayout::update_positions(&this.output, &mut this_tree, this_gaps);
+                    TilingLayout::update_positions(&this.output, &mut this_tree, this_gaps, this.zoom.as_ref());
                 this.queue.push_tree(this_tree, ANIMATION_DURATION, blocker);
 
                 let blocker =
-                    TilingLayout::update_positions(&other.output, &mut other_tree, other_gaps);
+                    TilingLayout::update_positions(&other.output, &mut other_tree, other_gaps, other.zoom.as_ref());
                 other
                     .queue
                     .push_tree(other_tree, ANIMATION_DURATION, blocker);
@@ -1255,18 +1258,22 @@ impl TilingLayout {
         }
 
         let this_gaps = this.gaps();
-        let blocker = TilingLayout::update_positions(&this.output, &mut this_tree, this_gaps);
+        let blocker = TilingLayout::update_positions(&this.output, &mut this_tree, this_gaps, this.zoom.as_ref());
         this.queue.push_tree(this_tree, ANIMATION_DURATION, blocker);
 
         let has_other_tree = other_tree.is_some();
         if let Some(mut other_tree) = other_tree {
+            let other_zoom = other
+                .as_ref()
+                .and_then(|other| other.zoom.clone())
+                .or_else(|| this.zoom.clone());
             let (other_queue, gaps) = if let Some(other) = other.as_mut() {
                 let other_gaps = other.gaps();
                 (&mut other.queue, other_gaps)
             } else {
                 (&mut this.queue, this_gaps)
             };
-            let blocker = TilingLayout::update_positions(&other_output, &mut other_tree, gaps);
+            let blocker = TilingLayout::update_positions(&other_output, &mut other_tree, gaps, other_zoom.as_ref());
             other_queue.push_tree(other_tree, ANIMATION_DURATION, blocker);
         }
 
@@ -1435,7 +1442,7 @@ impl TilingLayout {
             } else {
                 ANIMATION_DURATION
             };
-            let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps);
+            let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps, self.zoom.as_ref());
             self.queue.push_tree(tree, duration, blocker);
 
             return true;
@@ -1551,7 +1558,7 @@ impl TilingLayout {
                     .unwrap();
                     *mapped.tiling_node_id.lock().unwrap() = Some(new_id);
 
-                    let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps);
+                    let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps, self.zoom.as_ref());
                     self.queue.push_tree(tree, ANIMATION_DURATION, blocker);
                     return MoveResult::ShiftFocus(mapped.into());
                 }
@@ -1627,7 +1634,7 @@ impl TilingLayout {
                     .data_mut()
                     .remove_window(og_idx);
 
-                let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps);
+                let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps, self.zoom.as_ref());
                 self.queue.push_tree(tree, ANIMATION_DURATION, blocker);
                 return MoveResult::Done;
             }
@@ -1653,7 +1660,7 @@ impl TilingLayout {
                     .data_mut()
                     .remove_window(og_idx);
 
-                let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps);
+                let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps, self.zoom.as_ref());
                 self.queue.push_tree(tree, ANIMATION_DURATION, blocker);
                 return MoveResult::Done;
             }
@@ -1809,7 +1816,7 @@ impl TilingLayout {
                     MoveResult::Done
                 };
 
-                let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps);
+                let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps, self.zoom.as_ref());
                 self.queue.push_tree(tree, ANIMATION_DURATION, blocker);
                 return result;
             }
@@ -2124,7 +2131,7 @@ impl TilingLayout {
 
             *orientation = new_orientation;
 
-            let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps);
+            let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps, self.zoom.as_ref());
             self.queue.push_tree(tree, ANIMATION_DURATION, blocker);
         }
     }
@@ -2244,7 +2251,7 @@ impl TilingLayout {
             }
         };
 
-        let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps);
+        let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps, self.zoom.as_ref());
         self.queue.push_tree(tree, ANIMATION_DURATION, blocker);
 
         Some(result)
@@ -2321,7 +2328,7 @@ impl TilingLayout {
                         minimize_rect: None,
                     };
 
-                    let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps);
+                    let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps, self.zoom.as_ref());
                     self.queue.push_tree(tree, ANIMATION_DURATION, blocker);
 
                     return Some(KeyboardFocusTarget::Element(mapped));
@@ -2336,8 +2343,42 @@ impl TilingLayout {
         let gaps = self.gaps();
 
         let mut tree = self.queue.trees.back().unwrap().0.copy_clone();
-        let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps);
+        let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps, self.zoom.as_ref());
         self.queue.push_tree(tree, ANIMATION_DURATION, blocker);
+    }
+
+    /// The node currently zoomed to fill the workspace, if any.
+    pub fn zoom_target(&self) -> Option<&NodeId> {
+        self.zoom.as_ref()
+    }
+
+    /// Zoom the tiling node containing `mapped` to fill the workspace, or
+    /// restore the layout if that node is already zoomed. No-op for windows
+    /// that are not currently tiled.
+    pub fn zoom_toggle(&mut self, mapped: &CosmicMapped) {
+        let node_id = mapped.tiling_node_id.lock().unwrap().clone();
+        let Some(node_id) = node_id else {
+            return;
+        };
+        if !self.has_node(&node_id) {
+            return;
+        }
+        self.zoom = if self.zoom.as_ref() == Some(&node_id) {
+            None
+        } else {
+            Some(node_id)
+        };
+        self.recalculate();
+    }
+
+    /// Drop a zoom target that no longer exists in the tree.
+    fn validate_zoom(&mut self) {
+        if let Some(zoom) = self.zoom.clone() {
+            if !self.has_node(&zoom) {
+                self.zoom = None;
+                self.recalculate();
+            }
+        }
     }
 
     #[profiling::function]
@@ -2354,6 +2395,8 @@ impl TilingLayout {
         for (mapped, _) in self.mapped() {
             mapped.refresh();
         }
+
+        self.validate_zoom();
     }
 
     pub fn animations_going(&self) -> bool {
@@ -2609,7 +2652,7 @@ impl TilingLayout {
                         _ => true,
                     });
             if should_configure {
-                let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps);
+                let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps, self.zoom.as_ref());
                 self.queue.push_tree(tree, None, blocker);
             }
 
@@ -2657,7 +2700,7 @@ impl TilingLayout {
             // If anything was changed, push updated tree
             if let Some(mut new_tree) = new_tree {
                 let blocker =
-                    TilingLayout::update_positions(&self.output, &mut new_tree, self.gaps());
+                    TilingLayout::update_positions(&self.output, &mut new_tree, self.gaps(), self.zoom.as_ref());
                 self.queue.push_tree(new_tree, ANIMATION_DURATION, blocker);
             }
         }
@@ -2816,7 +2859,7 @@ impl TilingLayout {
             }
         }
 
-        let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps);
+        let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps, self.zoom.as_ref());
         self.queue.push_tree(tree, ANIMATION_DURATION, blocker);
 
         let location = self.element_geometry(&mapped).unwrap().loc;
@@ -2999,6 +3042,7 @@ impl TilingLayout {
         output: &Output,
         tree: &mut Tree<Data>,
         gaps: (i32, i32),
+        zoom: Option<&NodeId>,
     ) -> Option<TilingBlocker> {
         if let Some(root_id) = tree.root_node_id() {
             let mut configures = Vec::new();
@@ -3131,6 +3175,14 @@ impl TilingLayout {
                 }
             }
 
+            // Zoom: blow the selected subtree up to fill the workspace and
+            // move every other (tiled) window off-screen. The windows are
+            // still mapped and keep their client-side geometry, so they stay
+            // alive; only their layout geometry is parked.
+            if let Some(target) = zoom {
+                Self::apply_zoom(output, tree, target, geo, &mut configures);
+            }
+
             if !configures.is_empty() {
                 let blocker = TilingBlocker::new(configures);
                 for (surface, _) in &blocker.necessary_acks {
@@ -3143,6 +3195,89 @@ impl TilingLayout {
         }
 
         None
+    }
+
+    /// Geometry applied to tiled windows that are parked while another node is
+    /// zoomed. Far enough off-screen to be neither visible nor hit-testable on
+    /// any realistic output, while keeping the window mapped and its client
+    /// surfaces alive.
+    fn parked_geometry() -> Rectangle<i32, Local> {
+        Rectangle::new((-1_000_000, -1_000_000).into(), (1, 1).into())
+    }
+
+    /// Scale the `target` subtree so it fills `full` and park all other mapped
+    /// nodes off-screen. Mapped windows inside the subtree are reconfigured to
+    /// their new size; parked windows keep their client geometry on purpose so
+    /// they stay alive and resume seamlessly when the zoom is released.
+    fn apply_zoom(
+        output: &Output,
+        tree: &mut Tree<Data>,
+        target: &NodeId,
+        full: Rectangle<i32, Local>,
+        configures: &mut Vec<(CosmicSurface, smithay::utils::Serial)>,
+    ) {
+        let Ok(target_geo) = tree.get(target).map(|node| *node.data().geometry()) else {
+            return;
+        };
+        if target_geo.size.w <= 0 || target_geo.size.h <= 0 {
+            return;
+        }
+
+        let sx = full.size.w as f64 / target_geo.size.w as f64;
+        let sy = full.size.h as f64 / target_geo.size.h as f64;
+
+        let subtree = match tree.traverse_pre_order_ids(target) {
+            Ok(ids) => ids.collect::<Vec<_>>(),
+            Err(_) => return,
+        };
+
+        for id in &subtree {
+            let orig = *tree.get(id).unwrap().data().geometry();
+            let new = Rectangle::new(
+                (
+                    full.loc.x + ((orig.loc.x - target_geo.loc.x) as f64 * sx).round() as i32,
+                    full.loc.y + ((orig.loc.y - target_geo.loc.y) as f64 * sy).round() as i32,
+                )
+                    .into(),
+                (
+                    (orig.size.w as f64 * sx).round().max(1.0) as i32,
+                    (orig.size.h as f64 * sy).round().max(1.0) as i32,
+                )
+                    .into(),
+            );
+
+            let node = tree.get_mut(id).unwrap();
+            let data = node.data_mut();
+            data.update_geometry(new);
+
+            if let Data::Mapped { mapped, .. } = data {
+                if !(mapped.is_fullscreen(true) || mapped.is_maximized(true)) {
+                    mapped.set_tiled(true);
+                    let internal_geometry = new.to_global(output);
+                    mapped.set_geometry(internal_geometry);
+                    if let Some(serial) = mapped.configure() {
+                        configures.push((mapped.active_window(), serial));
+                    }
+                }
+            }
+        }
+
+        // Park every node outside the zoomed subtree off-screen.
+        let all = match tree.root_node_id() {
+            Some(root) => match tree.traverse_pre_order_ids(root) {
+                Ok(ids) => ids.collect::<Vec<_>>(),
+                Err(_) => return,
+            },
+            None => return,
+        };
+        for id in all {
+            if subtree.iter().any(|sub| sub == &id) {
+                continue;
+            }
+            if let Data::Mapped { last_geometry, .. } = tree.get_mut(&id).unwrap().data_mut() {
+                *last_geometry = Self::parked_geometry();
+            }
+        }
     }
 
     pub fn popup_element_under(
@@ -3407,7 +3542,7 @@ impl TilingLayout {
                     InsertBehavior::AsRoot,
                 )
                 .unwrap();
-                let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps);
+                let blocker = TilingLayout::update_positions(&self.output, &mut tree, gaps, self.zoom.as_ref());
                 self.queue.push_tree(tree, ANIMATION_DURATION, blocker);
             }
             return;
@@ -3879,6 +4014,7 @@ impl TilingLayout {
                                         &self.output,
                                         &mut tree,
                                         gaps,
+                                        self.zoom.as_ref(),
                                     );
                                     self.queue.push_tree(tree, duration, blocker);
                                 }
@@ -3978,7 +4114,7 @@ impl TilingLayout {
         };
         TilingLayout::merge_trees(src, &mut dst, orientation);
 
-        let blocker = TilingLayout::update_positions(&self.output, &mut dst, gaps);
+        let blocker = TilingLayout::update_positions(&self.output, &mut dst, gaps, self.zoom.as_ref());
         self.queue.push_tree(dst, ANIMATION_DURATION, blocker);
     }
 

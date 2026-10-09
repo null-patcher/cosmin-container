@@ -1036,6 +1036,15 @@ impl State {
                 workspace.toggle_floating_window_focused(seat);
             }
 
+            Action::ZoomWindow => {
+                let Some(output) = seat.focused_output() else {
+                    return;
+                };
+                let mut shell = self.common.shell.write();
+                let workspace = shell.active_space_mut(&output).unwrap();
+                workspace.zoom_toggle_focused(seat);
+            }
+
             Action::ToggleSticky => {
                 self.common.shell.write().toggle_sticky_current(seat);
             }

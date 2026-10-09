@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: GPL-3.0-only
+#
+# Development / build sandbox for the cosmic-container fork of cosmic-comp.
+#
+# This image is intentionally heavyweight: it contains everything needed to
+# compile cosmic-comp AND to run it under the winit backend inside Xvfb for
+# smoke tests (software GL via Mesa llvmpipe).
+#
+# Build:  podman build -f Dockerfile.dev -t cosmic-comp-dev .
+# Run:    see docs/SANDBOX.md
+
+FROM debian:trixie
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH \
+    LIBGL_ALWAYS_SOFTWARE=1
+
+# System build dependencies for cosmic-comp (see debian/control) plus the
+# runtime bits required for the winit + Xvfb smoke test.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential pkg-config cmake clang libclang-dev \
+        git curl ca-certificates \
+        libegl1-mesa-dev libgles2-mesa-dev libgl1-mesa-dri libegl-mesa0 mesa-utils \
+        libfontconfig-dev libfreetype-dev \
+        libgbm-dev libinput-dev libpixman-1-dev libseat-dev \
+        libsystemd-dev libudev-dev \
+        libwayland-dev wayland-protocols \
+        libxkbcommon-dev libxkbcommon-x11-dev \
+        libxcb1-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
+        libdisplay-info-dev \
+        xvfb xauth \
+        weston xdotool imagemagick \
+    && rm -rf /var/lib/apt/lists/*
+
+# Rust toolchain. The repo pins 1.93 via rust-toolchain.toml; rustup will
+# fetch it on first use inside the mounted source tree.
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+    | sh -s -- -y --profile minimal --default-toolchain none \
+    && rustup toolchain install 1.93 --profile minimal -c rust-src
+
+WORKDIR /work
+CMD ["/bin/bash"]

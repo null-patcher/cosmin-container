@@ -17,7 +17,7 @@ cosmic-comp-config = { path = "cosmic-comp-config", features = [
     "libdisplay-info",
     "output",
 ] }
-cosmic-config = { git = "https://github.com/pop-os/libcosmic", features = [
+cosmic-config = { git = "https://github.com/pop-os/libcosmic", rev = "d922ac380134c00208d2acf93947d44fb217eec5", features = [
     "calloop",
     "macro",
 ] }
@@ -39,11 +39,11 @@ i18n-embed = { version = "0.16", features = [
     "desktop-requester",
 ] }
 i18n-embed-fl = "0.10"
-iced_tiny_skia = { git = "https://github.com/pop-os/libcosmic" }
-iced_graphics = { git = "https://github.com/pop-os/libcosmic/", features = ["geometry"] }
+iced_tiny_skia = { git = "https://github.com/pop-os/libcosmic", rev = "d922ac380134c00208d2acf93947d44fb217eec5" }
+iced_graphics = { git = "https://github.com/pop-os/libcosmic", rev = "d922ac380134c00208d2acf93947d44fb217eec5", features = ["geometry"] }
 indexmap = "2.13"
 keyframe = "1.1.1"
-libcosmic = { git = "https://github.com/pop-os/libcosmic", default-features = false }
+libcosmic = { git = "https://github.com/pop-os/libcosmic", rev = "d922ac380134c00208d2acf93947d44fb217eec5", default-features = false }
 libsystemd = { version = "0.7", optional = true }
 log-panics = { version = "2", features = ["with-backtrace"] }
 ordered-float = "5.1"
@@ -144,6 +144,10 @@ lto = "fat"
 
 [patch."https://github.com/pop-os/cosmic-protocols"]
 cosmic-protocols = { git = "https://github.com/pop-os//cosmic-protocols", branch = "main" }
+
+[patch."https://github.com/pop-os/cosmic-settings-daemon"]
+cosmic-settings-config = { path = "../cosmic-settings-daemon/config" }
+cosmic-settings-daemon-config = { path = "../cosmic-settings-daemon/cosmic-settings-daemon-config" }
 
 [patch.crates-io]
 smithay = { git = "https://github.com/smithay/smithay.git", rev = "cf43a02" }

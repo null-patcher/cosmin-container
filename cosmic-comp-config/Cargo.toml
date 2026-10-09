@@ -4,7 +4,7 @@ version = "1.0.0"
 edition = "2024"
 
 [dependencies]
-cosmic-config = { git = "https://github.com/pop-os/libcosmic/" }
+cosmic-config = { git = "https://github.com/pop-os/libcosmic", rev = "d922ac380134c00208d2acf93947d44fb217eec5" }
 cosmic-randr-shell = { git = "https://github.com/pop-os/cosmic-randr/", optional = true }
 input = "0.10.0"
 libdisplay-info = { version = "0.3.0", optional = true }

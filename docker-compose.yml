@@ -1,0 +1,30 @@
+# Development sandbox for cosmic-container.
+#
+#   podman-compose up -d
+#   podman-compose exec dev cargo check --no-default-features
+#
+# The source tree is bind-mounted at /work; cargo caches and the target
+# directory live in named volumes so rebuilds survive container restarts.
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: localhost/cosmic-comp-dev:latest
+    working_dir: /work
+    volumes:
+      - .:/work:z
+      # Local fork of cosmic-settings-daemon, patched in as `../cosmic-settings-daemon`.
+      - ../cosmic-settings-daemon:/cosmic-settings-daemon:z
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - target:/work/target
+    environment:
+      CARGO_TERM_COLOR: always
+      LIBGL_ALWAYS_SOFTWARE: "1"
+    command: sleep infinity
+
+volumes:
+  cargo-registry:
+  cargo-git:
+  target:

@@ -1518,6 +1518,19 @@ impl Workspace {
         }
     }
 
+    pub fn zoom_toggle_focused(&mut self, seat: &Seat<State>) {
+        if matches!(
+            seat.get_keyboard().unwrap().current_focus(),
+            Some(KeyboardFocusTarget::Fullscreen(_))
+        ) {
+            return;
+        }
+        let maybe_window = self.focus_stack.get(seat).iter().next().cloned();
+        if let Some(FocusTarget::Window(window)) = maybe_window {
+            self.tiling_layer.zoom_toggle(&window);
+        }
+    }
+
     pub fn mapped(&self) -> impl Iterator<Item = &CosmicMapped> {
         self.floating_layer
             .mapped()
