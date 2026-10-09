@@ -11,6 +11,11 @@ Two environments are provided:
 | podman container + Xvfb (winit backend) | fast compile + headless tests | implemented |
 | QEMU guest, virtio-gpu (KMS backend) | real DRM/KMS acceptance | implemented |
 
+A top-level `Makefile` wraps the container commands below — run `make help` for
+the full list (e.g. `make images`, `make smoke SECS=8`, `make vm`,
+`make screenshot`, `make interactive`). The raw commands in this document remain
+the source of truth.
+
 ## 1. Container + Xvfb (winit)
 
 Everything lives in `Dockerfile.dev` (Debian trixie + full build deps + Rust

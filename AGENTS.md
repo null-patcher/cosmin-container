@@ -35,6 +35,10 @@ scripts/vm/interactive.sh
 There is no unit-test suite for the tiling changes; verify with the scripts
 above. Always run at least `cargo check` after editing.
 
+A `Makefile` wraps all of the above in the containers — run `make help` for the
+list (e.g. `make check`, `make smoke SECS=8`, `make vm BOOT_TIMEOUT=240`,
+`make screenshot`, `make interactive`).
+
 ## Critical facts
 
 - **Never test nested in the live session.** Use the container (winit/Xvfb) or,
